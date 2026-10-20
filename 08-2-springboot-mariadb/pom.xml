@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Maven 프로젝트 설정 파일 (의존성, 빌드 방법 정의) -->
+<!-- 08-spring-boot 대비 추가: spring-boot-starter-data-jpa, mariadb-java-client -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Spring Boot 기본 설정 상속 (라이브러리 버전을 자동으로 맞춰줌) -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>boot-mariadb</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+
+    <!-- 사용할 Java 버전 (Spring Boot 4는 Java 17 이상 필요) -->
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- 웹 기능 (REST API, 내장 Tomcat 서버 포함) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- [추가] JPA: 자바 객체(Entity)와 DB 테이블을 연결, Repository로 SQL 없이 조회/저장 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- [추가] MariaDB 접속 드라이버 (버전은 Spring Boot가 관리) -->
+        <!-- runtime: 컴파일에는 필요 없고 실행할 때만 필요 -->
+        <dependency>
+            <groupId>org.mariadb.jdbc</groupId>
+            <artifactId>mariadb-java-client</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 상태 확인 기능 (/actuator/health 경로 제공) -->
+        <!-- DB를 연결하면 health 결과에 DB 연결 상태도 함께 포함됨 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- 결과물 이름을 app.jar로 고정 (Dockerfile에서 경로를 예측하기 쉽게) -->
+        <finalName>app</finalName>
+        <plugins>
+            <!-- 실행 가능한 JAR 파일로 패키징 (java -jar로 바로 실행 가능) -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

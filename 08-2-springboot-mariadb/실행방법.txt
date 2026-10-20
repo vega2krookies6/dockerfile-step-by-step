@@ -1,0 +1,105 @@
+# ==========================================================
+# 08-2-springboot-mariadb 실행 방법
+# - 컨테이너 2개(MariaDB, Spring Boot)를 같은 Docker 네트워크로 연결
+# - 아래 명령은 PowerShell 기준, 08-2 폴더 안에서 실행
+# ==========================================================
+
+# 0. 사전 준비 (처음 한 번)
+# - .env.example을 .env로 복사하고 비밀번호 입력
+# - 이전에 만든 mariadb 컨테이너가 있으면 이름이 겹치므로 삭제
+#   (데이터는 이전 볼륨 mariadb-data에 그대로 남아 있음)
+docker rm -f mariadb
+
+# 1. 네트워크 만들기 (처음 한 번)
+# - 같은 네트워크에 있는 컨테이너끼리는 "컨테이너 이름"으로 서로 접속 가능
+# - 앱은 DB_HOST=mariadb 로 MariaDB 컨테이너를 찾음
+docker network create boot-net
+
+# 2. MariaDB 실행
+# - --network boot-net: 1단계에서 만든 네트워크에 연결
+# - --name mariadb: 앱이 이 이름으로 접속하므로 바꾸면 DB_HOST도 함께 변경
+# - -p 127.0.0.1:3306:3306: DBeaver 등 내 PC 프로그램에서만 접속 가능 (앱 컨테이너는 이 포트 없이도 접속됨)
+# - --env-file .env: MARIADB_* 값으로 boot_db, boot 계정 자동 생성 (볼륨이 비어 있을 때만)
+# - -v boot-mariadb-data:...: 데이터 저장용 볼륨 (컨테이너를 지워도 데이터 유지)
+# - -v ./db/init:...: 처음 시작할 때 01-revoke-drop.sql 실행 (boot 계정의 DROP 권한 회수)
+# - --health-cmd: MariaDB 이미지에 들어 있는 검사 스크립트로 DB가 준비됐는지 확인
+# - 마지막 두 옵션: 한글이 깨지지 않도록 문자셋을 utf8mb4로
+docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v ./db/init:/docker-entrypoint-initdb.d --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+# 3. MariaDB 준비 확인
+# - STATUS가 (healthy)가 될 때까지 기다린 뒤 다음 단계 진행 (처음에는 30초 정도)
+# - 로그에 "ready for connections"가 보이면 준비 완료
+docker ps
+docker logs mariadb
+
+# 4. 앱 이미지 빌드
+# - 처음에는 Maven 라이브러리 다운로드로 몇 분 걸림
+docker build -t boot-mariadb-app .
+
+# (재실행 시 기존 앱 컨테이너 정리)
+docker rm -f boot-app
+
+# 5. 앱 실행
+# - --network boot-net: MariaDB와 같은 네트워크
+# - --env-file .env: DB 이름, 계정, 비밀번호 전달 (MariaDB와 같은 파일)
+# - DB_HOST=mariadb는 Dockerfile의 ENV 기본값으로 이미 들어 있음
+# - -p 8092:8080: 08단계(8091)와 겹치지 않도록 8092 사용
+# - --restart unless-stopped: DB가 늦게 준비돼서 앱이 종료되더라도 자동으로 다시 시작
+docker run -d --name boot-app --network boot-net -p 8092:8080 --restart unless-stopped --env-file .env boot-mariadb-app
+
+# 6. 앱 상태 확인
+# - 로그에 "Started DemoApplication"과 "create table memo" SQL이 보이면 정상
+docker ps
+docker logs boot-app
+
+# 7. 테스트 (브라우저)
+http://localhost:8092/
+http://localhost:8092/memos
+http://localhost:8092/actuator/health      # components.db.status가 UP이면 DB 연결 정상
+
+# 8. 테스트 (PowerShell: 메모 저장, 조회, 삭제)
+Invoke-RestMethod -Method Post -Uri http://localhost:8092/memos -ContentType "application/json" -Body '{"content":"first memo"}'
+Invoke-RestMethod http://localhost:8092/memos
+Invoke-RestMethod -Method Delete -Uri http://localhost:8092/memos/1
+
+# (Git Bash에서는 curl 사용)
+# curl -X POST http://localhost:8092/memos -H "Content-Type: application/json" -d '{"content":"first memo"}'
+# curl http://localhost:8092/memos
+
+# 9. DB에 실제로 저장됐는지 확인 (boot 계정으로 접속)
+# - 비밀번호를 물어보면 .env의 MARIADB_PASSWORD 입력
+docker exec -it mariadb mariadb -uboot -p boot_db -e "SELECT * FROM memo;"
+
+# 10. DROP 권한이 회수됐는지 확인
+# - GRANT 목록에 DROP이 없으면 정상
+# - 두 번째 명령은 "DROP command denied" 오류가 나야 정상
+docker exec -it mariadb mariadb -uboot -p -e "SHOW GRANTS;"
+docker exec -it mariadb mariadb -uboot -p boot_db -e "DROP TABLE memo;"
+
+# 11. 데이터 유지 확인
+# - 두 컨테이너를 지우고 다시 실행해도 메모가 남아 있으면 볼륨이 정상 동작하는 것
+docker rm -f boot-app mariadb
+#   → 2단계, 5단계 명령을 다시 실행한 뒤 http://localhost:8092/memos 확인
+
+# ==========================================================
+# 처음부터 다시 하기 (데이터 전부 삭제)
+# - .env 값이나 01-revoke-drop.sql을 바꿨다면 볼륨을 지워야 다시 적용됨
+# ==========================================================
+docker rm -f boot-app mariadb
+docker volume rm boot-mariadb-data
+#   → 2단계부터 다시 실행
+
+# ==========================================================
+# 전부 정리
+# ==========================================================
+docker rm -f boot-app mariadb
+docker volume rm boot-mariadb-data
+docker network rm boot-net
+docker rmi boot-mariadb-app
+
+# ==========================================================
+# (참고) Git Bash에서 2단계를 실행할 때
+# - Git Bash는 /docker-entrypoint-initdb.d 같은 경로를 Windows 경로로 바꿔 버려 마운트가 실패함
+# - 명령 앞에 MSYS_NO_PATHCONV=1 을 붙여서 실행
+# ==========================================================
+# MSYS_NO_PATHCONV=1 docker run -d --name mariadb ... (2단계와 동일)
