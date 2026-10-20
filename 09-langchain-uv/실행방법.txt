@@ -1,0 +1,36 @@
+# 0. 사전 준비 (처음 한 번)
+# - .env.example을 .env로 복사하고 GROQ_API_KEY 입력
+# - 09 폴더에서 uv lock 실행 → 줄인 pyproject.toml 기준으로 uv.lock 생성
+#   (pyproject.toml을 수정할 때마다 다시 실행)
+uv lock
+
+# (재실행 시 기존 컨테이너 정리)
+docker rm -f my-langchain
+
+# 1. 이미지 빌드
+# - .env는 .dockerignore로 제외되므로 이미지에 키가 들어가지 않음
+docker build -t langchain-uv-app .
+
+# 2. 컨테이너 실행
+# - --env-file .env: .env 파일의 값을 환경 변수로 전달 (키는 여기서만 들어감)
+# - -p 8001:8000: 5단계 FastAPI 예제의 8000과 겹치지 않도록 8001 사용
+docker run -d -p 8001:8000 --env-file .env --name my-langchain langchain-uv-app
+
+# 3. 상태 확인
+# - Exited (1)이면 docker logs에서 "GROQ_API_KEY 환경 변수가 설정되지 않았습니다" 확인
+docker ps
+docker logs my-langchain
+
+# 4. 브라우저 테스트
+http://localhost:8001/        # 스트리밍 테스트 페이지
+http://localhost:8001/docs    # Swagger UI (/chat 테스트)
+http://localhost:8001/health  # {"status":"healthy"}
+
+# 5. 터미널 테스트 (Git Bash)
+# - 호출할 때마다 Groq API 사용량이 발생
+curl -X POST http://localhost:8001/chat -H "Content-Type: application/json" -d '{"question": "What is LangChain?"}'
+curl -N -X POST http://localhost:8001/chat/stream -H "Content-Type: application/json" -d '{"question": "LangChain이 뭐야?"}'
+
+# (참고) Docker 없이 로컬에서 실행
+uv sync
+uv run uvicorn 010_FastAPI_Basic:app --reload

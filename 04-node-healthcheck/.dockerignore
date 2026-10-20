@@ -1,0 +1,18 @@
+# 이미지 빌드 시 복사하지 않을 파일
+
+# 의존성: 컨테이너 안에서 npm install로 새로 설치하므로 제외
+node_modules
+npm-debug.log
+
+# Docker 관련 파일: 이미지 실행에 필요 없음
+Dockerfile
+.dockerignore
+
+# 문서, 버전 관리 파일
+실행방법.txt
+README.md
+.git
+.gitignore
+
+# 환경 변수 파일: 비밀번호 등이 이미지에 포함되지 않도록 제외
+.env

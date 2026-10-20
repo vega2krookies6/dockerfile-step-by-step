@@ -1,0 +1,6 @@
+# 이미지 빌드 시 복사하지 않을 파일
+# - target: 컨테이너 안에서 새로 빌드하므로 제외
+# - .idea, *.iml: IntelliJ 설정 파일
+target
+.idea
+*.iml
