@@ -1,7 +1,8 @@
 # ==========================================================
 # 08-2-springboot-mariadb 실행 방법
 # - 컨테이너 2개(MariaDB, Spring Boot)를 같은 Docker 네트워크로 연결
-# - 아래 명령은 PowerShell 기준, 08-2 폴더 안에서 실행
+# - 모든 명령은 08-2 폴더 안에서 실행
+# - 2단계(MariaDB 실행)는 Git Bash용과 PowerShell용이 다르고, 나머지는 둘 다 같음
 # ==========================================================
 
 # 0. 사전 준비 (처음 한 번)
@@ -15,35 +16,115 @@ docker rm -f mariadb
 # - 앱은 DB_HOST=mariadb 로 MariaDB 컨테이너를 찾음
 docker network create boot-net
 
-# 2. MariaDB 실행 
-# - --network boot-net: 1단계에서 만든 네트워크에 연결
-# - --name mariadb: 앱이 이 이름으로 접속하므로 바꾸면 DB_HOST도 함께 변경
-# - -p 127.0.0.1:3306:3306: DBeaver 등 내 PC 프로그램에서만 접속 가능 (앱 컨테이너는 이 포트 없이도 접속됨)
-# - --env-file .env: MARIADB_* 값으로 boot_db, boot 계정 자동 생성 (볼륨이 비어 있을 때만)
-# - -v boot-mariadb-data:...: 데이터 저장용 볼륨 (컨테이너를 지워도 데이터 유지)
-# - -v "${PWD}\db\init:...": 처음 시작할 때 01-revoke-drop.sql 실행 (boot 계정의 DROP 권한 회수)
-#   Windows에서는 ./db/init 같은 상대 경로가 볼륨 이름으로 잘못 해석될 수 있어 절대 경로(${PWD}) 사용
-# - --health-cmd: MariaDB 이미지에 들어 있는 검사 스크립트로 DB가 준비됐는지 확인
-# - 마지막 두 옵션: 한글이 깨지지 않도록 문자셋을 utf8mb4로
+# 2. MariaDB 실행
+#
+# [옵션 설명]
+#
+# MSYS_NO_PATHCONV=1
+#   Git Bash 전용. 이 명령 한 번에만 "경로 자동 변환"을 끔
+#   - Git Bash는 /로 시작하는 인자를 Windows 경로로 바꿔 버림
+#     (/docker-entrypoint-initdb.d → C:/Program Files/Git/docker-entrypoint-initdb.d)
+#   - 컨테이너 안의 리눅스 경로가 바뀌지 않도록 막는 역할
+#   - PowerShell은 이런 변환을 하지 않으므로 필요 없음
+#
+# docker run
+#   이미지로 새 컨테이너를 만들고 실행 (이미지가 없으면 자동으로 내려받음)
+#
+# -d
+#   백그라운드 실행 (터미널을 점유하지 않음, 출력은 docker logs로 확인)
+#
+# --name mariadb
+#   컨테이너 이름 지정
+#   - 앱 컨테이너가 이 이름으로 DB에 접속함 (Dockerfile의 DB_HOST=mariadb)
+#   - 바꾸면 앱 실행 시 -e DB_HOST=새이름 도 함께 지정해야 함
+#
+# --network boot-net
+#   1단계에서 만든 네트워크에 연결
+#   - 같은 네트워크의 컨테이너끼리는 "컨테이너 이름"을 주소로 서로 접속 가능
+#
+# -p 127.0.0.1:3306:3306
+#   내 PC의 3306 포트 → 컨테이너의 3306 포트 연결
+#   - 127.0.0.1: 내 PC에서만 접속 허용 (같은 네트워크의 다른 PC는 차단)
+#   - DBeaver 같은 내 PC 프로그램용이며, 앱 컨테이너는 이 옵션 없이도 접속됨
+#   - PC에 MySQL/MariaDB가 이미 설치되어 있으면 127.0.0.1:3307:3306 처럼 앞 번호만 변경
+#
+# --restart unless-stopped
+#   컨테이너가 오류로 종료되거나 Docker Desktop을 다시 켜면 자동으로 다시 시작
+#   - docker stop으로 직접 멈춘 경우에는 다시 시작하지 않음
+#   - always는 직접 멈춰도 Docker를 다시 켜면 또 시작됨
+#
+# --env-file .env
+#   .env 파일의 값을 환경 변수로 전달 (비밀번호를 명령에 직접 쓰지 않기 위해)
+#   - MARIADB_ROOT_PASSWORD : root 비밀번호
+#   - MARIADB_DATABASE      : 자동으로 만들 DB (boot_db)
+#   - MARIADB_USER          : 자동으로 만들 계정 (boot, boot_db에 ALL PRIVILEGES)
+#   - MARIADB_PASSWORD      : 그 계정의 비밀번호
+#   - 볼륨이 비어 있을 때(처음 시작할 때)만 적용됨
+#
+# -v boot-mariadb-data:/var/lib/mysql
+#   이름 있는 볼륨(boot-mariadb-data)을 MariaDB 데이터 폴더에 연결
+#   - 컨테이너를 지워도 DB, 테이블, 데이터가 볼륨에 남음
+#   - 볼륨이 없으면 처음 실행할 때 자동으로 만들어짐
+#
+# -v "$(pwd -W)/db/init:/docker-entrypoint-initdb.d"      (Git Bash)
+# -v "${PWD}\db\init:/docker-entrypoint-initdb.d"          (PowerShell)
+#   내 PC의 db/init 폴더를 컨테이너의 초기화 폴더에 연결 (바인드 마운트)
+#   - MariaDB는 처음 시작할 때 이 폴더의 .sql 파일을 실행 → 01-revoke-drop.sql (DROP 권한 회수)
+#   - 상대 경로(./db/init)는 Windows에서 볼륨 이름으로 잘못 해석될 수 있어 절대 경로 사용
+#   - Git Bash의 $(pwd)는 /c/... 형태라 Docker가 인식 못 함 → -W를 붙여 C:/... 형태로
+#   - 큰따옴표: 폴더 경로에 공백이나 한글이 있어도 하나의 값으로 전달
+#
+# --health-cmd "healthcheck.sh --connect --innodb_initialized"
+#   Dockerfile 없이 실행 시점에 HEALTHCHECK 지정
+#   - healthcheck.sh: MariaDB 공식 이미지에 들어 있는 검사 스크립트
+#   - --connect: DB에 실제로 접속이 되는지 확인
+#   - --innodb_initialized: 저장 엔진(InnoDB) 초기화가 끝났는지 확인
+#   - docker ps의 STATUS가 (healthy)가 되면 앱을 실행해도 됨
+#
+# --health-interval 10s
+#   10초마다 검사 (기본값 30s보다 짧게 해서 준비 완료를 빨리 알 수 있게)
+#
+# --health-start-period 30s
+#   시작 후 30초 동안의 검사 실패는 unhealthy로 세지 않음 (첫 초기화에 시간이 걸리므로)
+#
+# mariadb:10.11.18
+#   사용할 이미지와 버전 (10.11은 장기 지원 LTS 버전)
+#   - 이 뒤에 오는 값은 docker 옵션이 아니라 MariaDB 서버에 전달되는 옵션
+#
+# --character-set-server=utf8mb4
+#   서버 기본 문자셋을 utf8mb4로 (한글, 이모지까지 저장 가능)
+#
+# --collation-server=utf8mb4_unicode_ci
+#   문자열 비교, 정렬 규칙 (ci: 대소문자 구분 없음)
+#
+# [줄 바꿈 주의] (Git Bash)
+#   - 줄 끝의 \ 는 "명령이 다음 줄로 이어진다"는 뜻
+#   - \ 뒤에 공백이 있으면 줄이 끊겨 오류가 나므로, \ 가 반드시 그 줄의 마지막 글자여야 함
+#   - 줄 중간에 주석(#)을 넣을 수 없으므로 설명은 위에 따로 적음
+
+# (Git Bash)
+MSYS_NO_PATHCONV=1 docker run -d \
+  --name mariadb \
+  --network boot-net \
+  -p 127.0.0.1:3306:3306 \
+  --restart unless-stopped \
+  --env-file .env \
+  -v boot-mariadb-data:/var/lib/mysql \
+  -v "$(pwd -W)/db/init:/docker-entrypoint-initdb.d" \
+  --health-cmd "healthcheck.sh --connect --innodb_initialized" \
+  --health-interval 10s \
+  --health-start-period 30s \
+  mariadb:10.11.18 \
+  --character-set-server=utf8mb4 \
+  --collation-server=utf8mb4_unicode_ci
+
 # (PowerShell Only)
 docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v "${PWD}\db\init:/docker-entrypoint-initdb.d" --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
-# ==========================================================
-# (참고) Git Bash에서 2단계를 실행할 때
-# - Git Bash는 /docker-entrypoint-initdb.d 같은 경로를 Windows 경로로 바꿔 버려 마운트가 실패함
-#   → 명령 앞에 MSYS_NO_PATHCONV=1 을 붙임
-# - ${PWD} 대신 $(pwd -W) 사용 (C:/... 형태의 절대 경로, 그냥 $(pwd)는 /c/... 라서 안 됨)
-# MSYS_NO_PATHCONV=1의 의미
-#  MSYS : Git Bash의 기반 환경 이름
-#  NO_PATHCONV : 경로 변환(path conversion)을 하지 않음
-#  =1 : 켬(참)
-# 내가 입력한 것:   -v ./db/init:/docker-entrypoint-initdb.d
-# Docker가 받은 것: -v .\db\init;C:\Program Files\Git\docker-entrypoint-initdb.d
-# ==========================================================
-# Git Bash
-MSYS_NO_PATHCONV=1 docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v "$(pwd -W)/db/init:/docker-entrypoint-initdb.d" --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-
-
+# (초기화 SQL이 실행됐는지 확인)
+# - "running /docker-entrypoint-initdb.d/01-revoke-drop.sql"이 보이고 ERROR가 없으면 정상
+docker logs mariadb 2>&1 | grep -E "01-revoke|ERROR"                          # Git Bash
+docker logs mariadb 2>&1 | Select-String "01-revoke|ERROR"                     # PowerShell
 
 # 3. MariaDB 준비 확인
 # - STATUS가 (healthy)가 될 때까지 기다린 뒤 다음 단계 진행 (처음에는 30초 정도)
@@ -100,6 +181,7 @@ docker exec -it mariadb mariadb -uboot -p boot_db -e "DROP TABLE memo;"
 docker rm -f boot-app mariadb
 #   → 2단계, 5단계 명령을 다시 실행한 뒤 http://localhost:8092/memos 확인
 
+
 # ==========================================================
 # 처음부터 다시 하기 (데이터 전부 삭제)
 # - .env 값이나 01-revoke-drop.sql을 바꿨다면 볼륨을 지워야 다시 적용됨
@@ -107,6 +189,28 @@ docker rm -f boot-app mariadb
 docker rm -f boot-app mariadb
 docker volume rm boot-mariadb-data
 #   → 2단계부터 다시 실행
+# (Git Bash) MariaDB 실행
+MSYS_NO_PATHCONV=1 docker run -d \
+  --name mariadb \
+  --network boot-net \
+  -p 127.0.0.1:3306:3306 \
+  --restart unless-stopped \
+  --env-file .env \
+  -v boot-mariadb-data:/var/lib/mysql \
+  -v "$(pwd -W)/db/init:/docker-entrypoint-initdb.d" \
+  --health-cmd "healthcheck.sh --connect --innodb_initialized" \
+  --health-interval 10s \
+  --health-start-period 30s \
+  mariadb:10.11.18 \
+  --character-set-server=utf8mb4 \
+  --collation-server=utf8mb4_unicode_ci
+
+docker exec -it mariadb mariadb -uboot -p boot_db -e "SELECT * FROM memo;"
+
+# (Git Bash) SpringBoot 실행
+docker run -d --name boot-app --network boot-net -p 8092:8080 --restart unless-stopped --env-file .env boot-mariadb-app
+
+curl http://localhost:8092/memos
 
 # ==========================================================
 # 전부 정리
@@ -115,4 +219,3 @@ docker rm -f boot-app mariadb
 docker volume rm boot-mariadb-data
 docker network rm boot-net
 docker rmi boot-mariadb-app
-
