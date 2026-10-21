@@ -8,5 +8,14 @@
 -- - 앱 계정이 실수로 테이블이나 DB를 지우지 못하도록 DROP만 뺌
 -- - TRUNCATE도 DROP 권한이 필요하므로 함께 막힘
 -- - DELETE(행 삭제), ALTER(컬럼 변경)는 그대로 가능
+--
+-- 권한 Revoke가 처리 되지 않았던 경우
+-- REVOKE DROP ON boot_db.* FROM 'boot'@'%';
+-- 주의: DB 이름을 boot_db가 아니라 `boot\_db` 로 써야 함
+-- - GRANT/REVOKE에서 DB 이름의 _ 는 "아무 글자 하나"를 뜻하는 와일드카드
+-- - MariaDB 이미지는 이를 막으려고 권한을 `boot\_db`.* (진짜 밑줄)로 부여함
+--   (SHOW GRANTS 결과: GRANT ALL PRIVILEGES ON `boot\_db`.* TO `boot`@`%`)
+-- - boot_db.* 로 회수하면 "There is no such grant defined" 오류가 나고 회수되지 않음
+-- - 백틱(`) 안에서는 \ 가 그대로 글자로 취급되므로 아래처럼 쓰면 정확히 일치함
 
-REVOKE DROP ON boot_db.* FROM 'boot'@'%';
+REVOKE DROP ON `boot\_db`.* FROM 'boot'@'%';

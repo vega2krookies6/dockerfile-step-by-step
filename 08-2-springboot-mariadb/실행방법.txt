@@ -15,16 +15,35 @@ docker rm -f mariadb
 # - 앱은 DB_HOST=mariadb 로 MariaDB 컨테이너를 찾음
 docker network create boot-net
 
-# 2. MariaDB 실행
+# 2. MariaDB 실행 
 # - --network boot-net: 1단계에서 만든 네트워크에 연결
 # - --name mariadb: 앱이 이 이름으로 접속하므로 바꾸면 DB_HOST도 함께 변경
 # - -p 127.0.0.1:3306:3306: DBeaver 등 내 PC 프로그램에서만 접속 가능 (앱 컨테이너는 이 포트 없이도 접속됨)
 # - --env-file .env: MARIADB_* 값으로 boot_db, boot 계정 자동 생성 (볼륨이 비어 있을 때만)
 # - -v boot-mariadb-data:...: 데이터 저장용 볼륨 (컨테이너를 지워도 데이터 유지)
-# - -v ./db/init:...: 처음 시작할 때 01-revoke-drop.sql 실행 (boot 계정의 DROP 권한 회수)
+# - -v "${PWD}\db\init:...": 처음 시작할 때 01-revoke-drop.sql 실행 (boot 계정의 DROP 권한 회수)
+#   Windows에서는 ./db/init 같은 상대 경로가 볼륨 이름으로 잘못 해석될 수 있어 절대 경로(${PWD}) 사용
 # - --health-cmd: MariaDB 이미지에 들어 있는 검사 스크립트로 DB가 준비됐는지 확인
 # - 마지막 두 옵션: 한글이 깨지지 않도록 문자셋을 utf8mb4로
-docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v ./db/init:/docker-entrypoint-initdb.d --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+# (PowerShell Only)
+docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v "${PWD}\db\init:/docker-entrypoint-initdb.d" --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+# ==========================================================
+# (참고) Git Bash에서 2단계를 실행할 때
+# - Git Bash는 /docker-entrypoint-initdb.d 같은 경로를 Windows 경로로 바꿔 버려 마운트가 실패함
+#   → 명령 앞에 MSYS_NO_PATHCONV=1 을 붙임
+# - ${PWD} 대신 $(pwd -W) 사용 (C:/... 형태의 절대 경로, 그냥 $(pwd)는 /c/... 라서 안 됨)
+# MSYS_NO_PATHCONV=1의 의미
+#  MSYS : Git Bash의 기반 환경 이름
+#  NO_PATHCONV : 경로 변환(path conversion)을 하지 않음
+#  =1 : 켬(참)
+# 내가 입력한 것:   -v ./db/init:/docker-entrypoint-initdb.d
+# Docker가 받은 것: -v .\db\init;C:\Program Files\Git\docker-entrypoint-initdb.d
+# ==========================================================
+# Git Bash
+MSYS_NO_PATHCONV=1 docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v "$(pwd -W)/db/init:/docker-entrypoint-initdb.d" --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+
 
 # 3. MariaDB 준비 확인
 # - STATUS가 (healthy)가 될 때까지 기다린 뒤 다음 단계 진행 (처음에는 30초 정도)
@@ -63,8 +82,8 @@ Invoke-RestMethod http://localhost:8092/memos
 Invoke-RestMethod -Method Delete -Uri http://localhost:8092/memos/1
 
 # (Git Bash에서는 curl 사용)
-# curl -X POST http://localhost:8092/memos -H "Content-Type: application/json" -d '{"content":"first memo"}'
-# curl http://localhost:8092/memos
+curl -X POST http://localhost:8092/memos -H "Content-Type: application/json" -d '{"content":"first memo"}'
+curl http://localhost:8092/memos
 
 # 9. DB에 실제로 저장됐는지 확인 (boot 계정으로 접속)
 # - 비밀번호를 물어보면 .env의 MARIADB_PASSWORD 입력
@@ -97,9 +116,3 @@ docker volume rm boot-mariadb-data
 docker network rm boot-net
 docker rmi boot-mariadb-app
 
-# ==========================================================
-# (참고) Git Bash에서 2단계를 실행할 때
-# - Git Bash는 /docker-entrypoint-initdb.d 같은 경로를 Windows 경로로 바꿔 버려 마운트가 실패함
-# - 명령 앞에 MSYS_NO_PATHCONV=1 을 붙여서 실행
-# ==========================================================
-# MSYS_NO_PATHCONV=1 docker run -d --name mariadb ... (2단계와 동일)

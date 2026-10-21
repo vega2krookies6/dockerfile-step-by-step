@@ -126,7 +126,7 @@ MariaDB 공식 이미지는 **볼륨이 비어 있을 때(처음 시작할 때)�
 3. MARIADB_USER, MARIADB_PASSWORD로 'boot'@'%' 계정 생성
    + boot_db에 대한 ALL PRIVILEGES 부여
 4. /docker-entrypoint-initdb.d/ 의 .sql 파일 실행
-   → 01-revoke-drop.sql: REVOKE DROP ON boot_db.* FROM 'boot'@'%';
+   → 01-revoke-drop.sql: REVOKE DROP ON `boot\_db`.* FROM 'boot'@'%';
 ```
 
 직접 SQL로 하던 작업과 같은 결과입니다.
@@ -135,7 +135,7 @@ MariaDB 공식 이미지는 **볼륨이 비어 있을 때(처음 시작할 때)�
 CREATE DATABASE boot_db;
 CREATE USER 'boot'@'%' IDENTIFIED BY '...';
 GRANT ALL PRIVILEGES ON boot_db.* TO 'boot'@'%';
-REVOKE DROP ON boot_db.* FROM 'boot'@'%';
+REVOKE DROP ON `boot\_db`.* FROM 'boot'@'%';   -- 이미지가 _ 를 \_ 로 바꿔 권한을 주므로 맞춰 씀
 ```
 
 > ⚠️ 이미 데이터가 있는 볼륨으로 시작하면 **1~4단계를 모두 건너뜁니다.** `.env`나 SQL 파일을 바꿨다면 볼륨을 지우고 다시 시작해야 적용됩니다.
@@ -196,7 +196,7 @@ docker rm -f mariadb
 docker network create boot-net
 
 # 2. MariaDB 실행
-docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v ./db/init:/docker-entrypoint-initdb.d --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+docker run -d --name mariadb --network boot-net -p 127.0.0.1:3306:3306 --restart unless-stopped --env-file .env -v boot-mariadb-data:/var/lib/mysql -v "${PWD}\db\init:/docker-entrypoint-initdb.d" --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 10s --health-start-period 30s mariadb:10.11.18 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
 # 3. MariaDB가 (healthy)가 될 때까지 기다림
 docker ps
@@ -272,8 +272,10 @@ Invoke-RestMethod http://localhost:8092/memos    # 이전에 저장한 메모가
 | `Access denied for user 'boot'` | 비밀번호 불일치, 또는 기존 볼륨으로 시작해 `.env`가 적용 안 됨 | `.env` 확인, 필요하면 볼륨 삭제 후 다시 시작 |
 | `Unknown database 'boot_db'` | 기존 볼륨으로 시작해 자동 생성이 건너뛰어짐 | 볼륨 삭제 후 다시 시작 |
 | DROP이 여전히 됨 | 기존 볼륨으로 시작해 `01-revoke-drop.sql`이 실행 안 됨 | 볼륨 삭제 후 다시 시작, 또는 root로 `REVOKE` 직접 실행 |
+| `SHOW GRANTS`에 `ALL PRIVILEGES ON \`boot\_db\`.*`가 그대로 | REVOKE를 `boot_db.*`로 써서 다른 권한으로 인식 (`_`는 와일드카드) | root로 접속해 ``REVOKE DROP ON `boot\_db`.* FROM 'boot'@'%';`` 실행 |
 | 앱 시작 시 `DROP command denied` | `ddl-auto`가 `create` 또는 `create-drop` | `update` 또는 `validate`로 변경 |
 | Git Bash에서 init 폴더 마운트 실패 | Git Bash가 컨테이너 경로를 Windows 경로로 변환 | PowerShell 사용, 또는 명령 앞에 `MSYS_NO_PATHCONV=1` |
+| `"db/init" includes invalid characters for a local volume name` | 상대 경로 `./db/init`이 볼륨 이름으로 해석됨 | 절대 경로 사용: PowerShell `"${PWD}\db\init:..."`, Git Bash `"$(pwd -W)/db/init:..."` |
 | 한글이 `???`로 저장됨 | 문자셋 옵션 누락 | MariaDB 실행 명령 끝의 `utf8mb4` 옵션 확인 후 볼륨 삭제, 다시 시작 |
 | `127.0.0.1:3306` 포트 사용 중 | PC에 MySQL/MariaDB가 설치되어 있음 | `-p 127.0.0.1:3307:3306`으로 바꾸고 DBeaver는 3307로 접속 |
 
