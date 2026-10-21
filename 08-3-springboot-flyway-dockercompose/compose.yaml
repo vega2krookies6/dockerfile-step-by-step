@@ -1,0 +1,99 @@
+# ==========================================================
+# Docker Compose 설정: MariaDB + Spring Boot 앱을 한 번에 실행
+# - 08-2에서 docker network create, docker run 두 번, 실행 순서 맞추기를
+#   명령으로 하던 것을 이 파일 하나로 정리
+# - 실행: docker compose up -d --build   (08-3 폴더 안에서)
+# - 종료: docker compose down            (데이터는 볼륨에 남음)
+# ==========================================================
+
+# 프로젝트 이름
+# - 컨테이너, 네트워크, 볼륨 이름 앞에 붙음 (예: boot-flyway-mariadb-1, boot-flyway_mariadb-data)
+# - 없으면 폴더 이름이 쓰임
+name: boot-flyway
+
+services:
+
+  # --------------------------------------------------------
+  # MariaDB
+  # docker run -d --name mariadb ... mariadb:10.11.18 와 같은 내용
+  # --------------------------------------------------------
+  mariadb:
+    image: mariadb:10.11.18
+
+    # .env 파일의 MARIADB_* 값을 환경 변수로 전달 (= --env-file .env)
+    # - 볼륨이 비어 있을 때 boot_db, boot 계정을 자동 생성
+    env_file: .env
+
+    # 이미지 이름 뒤에 붙이던 MariaDB 서버 옵션
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
+    # 내 PC에서만 접속 (DBeaver 등)
+    # - 08-2의 MariaDB(3306)와 동시에 실행할 수 있도록 내 PC 쪽은 3307 사용
+    # - 앱 컨테이너는 이 설정과 상관없이 mariadb:3306으로 접속
+    ports:
+      - "127.0.0.1:3307:3306"
+
+    volumes:
+      # 이름 있는 볼륨 (아래 volumes: 에서 선언), 컨테이너를 지워도 데이터 유지
+      - mariadb-data:/var/lib/mysql
+      # 바인드 마운트: 이 파일 기준 상대 경로라 Windows에서도 그대로 동작
+      # - docker run과 달리 ${PWD}, $(pwd -W), MSYS_NO_PATHCONV가 필요 없음
+      # - :ro = 읽기 전용 (컨테이너가 SQL 파일을 바꿀 수 없게)
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+    # = --health-cmd, --health-interval, --health-start-period
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # Spring Boot 앱
+  # docker build + docker run -d --name boot-app ... 와 같은 내용
+  # --------------------------------------------------------
+  app:
+    # 이 폴더의 Dockerfile로 이미지를 빌드 (= docker build .)
+    build: .
+    # 빌드한 이미지에 붙일 이름 (= docker build -t boot-flyway-app)
+    image: boot-flyway-app
+
+    # 앱에 필요한 값만 골라서 전달
+    # - ${...}는 같은 폴더의 .env 파일 값으로 자동 치환됨 (Compose의 변수 치환 기능)
+    # - env_file을 쓰지 않아서 MARIADB_ROOT_PASSWORD는 앱 컨테이너에 전달되지 않음
+    #   (08-2에서는 --env-file .env로 root 비밀번호까지 앱에 들어갔음)
+    environment:
+      DB_HOST: mariadb          # 서비스 이름이 곧 접속 주소
+      DB_PORT: "3306"
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+
+    # 08-2(8092)와 겹치지 않도록 8093 사용
+    ports:
+      - "8093:8080"
+
+    # 실행 순서 제어
+    # - MariaDB가 healthy가 된 뒤에 앱을 시작 (08-2에서 손으로 기다리던 부분)
+    # - 단순히 depends_on: [mariadb]만 쓰면 "컨테이너가 시작됐는지"만 보고 DB 준비는 기다리지 않음
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+# ----------------------------------------------------------
+# 이름 있는 볼륨 선언
+# - 실제 이름: boot-flyway_mariadb-data (프로젝트 이름이 앞에 붙음)
+# - docker compose down 해도 남고, docker compose down -v 하면 삭제됨
+# ----------------------------------------------------------
+volumes:
+  mariadb-data:
+
+# 네트워크는 선언하지 않아도 Compose가 boot-flyway_default 네트워크를 자동으로 만들고
+# 두 서비스를 연결함 (08-2의 docker network create boot-net 에 해당)

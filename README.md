@@ -28,6 +28,7 @@ dockerfile-step-by-step/
 ├── 07-react-vite/
 ├── 08-spring-boot/
 ├── 08-2-springboot-mariadb/
+├── 08-3-springboot-flyway-dockercompose/
 ├── 09-langchain-uv/
 └── 10-langchain-rag-uv/
 ```
@@ -47,6 +48,7 @@ dockerfile-step-by-step/
 | [07](#07-react-vite) | React (Vite) | 프론트엔드 멀티 스테이지 (Node → Nginx) | 8090 |
 | [08](#08-spring-boot) | Spring Boot | Maven 빌드, `ENTRYPOINT`, Actuator 헬스체크 | 8091 |
 | [08-2](#08-2-springboot-mariadb) | Spring Boot + MariaDB | **컨테이너 2개 연결**, 볼륨, DB 자동 초기화 | 8092, 3306 |
+| [08-3](#08-3-springboot-flyway-dockercompose) | Spring Boot + MariaDB + Flyway | **Docker Compose**, Flyway 마이그레이션, `ddl-auto=validate` | 8093, 3307 |
 | [09](#09-langchain-uv) | LangChain + FastAPI | **uv**, 비밀 값 분리 (`--env-file`) | 8001 |
 | [10](#10-langchain-rag-uv) | PDF RAG (Gradio) | 배포용 코드 수정, 환경 변수로 설정 분리 | 7860 |
 
@@ -149,6 +151,26 @@ docker network create boot-net
 # MariaDB → 앱 순서로 실행 (자세한 옵션은 실행방법.txt)
 ```
 
+### 08-3-springboot-flyway-dockercompose
+
+[📁 폴더](./08-3-springboot-flyway-dockercompose) · [📄 README](./08-3-springboot-flyway-dockercompose/README.md)
+
+08-2와 같은 앱을 **Docker Compose**로 실행하고, 테이블을 **Flyway** 마이그레이션으로 관리합니다.
+08-2에서 명령 여러 개와 실행 순서로 맞추던 것을 `compose.yaml` 파일 하나로 정리합니다.
+
+- 파일: `compose.yaml`, `Dockerfile`, `pom.xml`, `src/main/resources/db/migration/V1__...sql`, `V2__...sql`, `db/init/01-revoke-drop.sql`, `.env.example`, `.dockerignore`
+- 핵심:
+  - `depends_on: condition: service_healthy`로 MariaDB가 준비된 뒤 앱을 자동으로 시작
+  - 테이블은 Flyway SQL 파일로만 변경, JPA는 `ddl-auto=validate`로 검사만
+  - 적용된 마이그레이션은 수정하지 않고 새 버전(V3, V4...)으로 추가
+  - `./db/init` 상대 경로가 그대로 동작해 Git Bash, PowerShell 명령이 같아짐
+  - 앱 컨테이너에는 root 비밀번호를 전달하지 않음 (`environment:` + `${...}` 치환)
+
+```bash
+docker compose up -d --build
+docker compose logs -f app     # Flyway 마이그레이션 로그 확인
+```
+
 ### 09-langchain-uv
 
 [📁 폴더](./09-langchain-uv) · [📄 README](./09-langchain-uv/README.md)
@@ -178,7 +200,7 @@ PDF를 업로드하면 문서 내용을 근거로 답변하는 RAG Gradio 앱입
 2. 01단계 폴더로 이동해 `실행방법.txt`의 명령을 순서대로 실행합니다.
 3. 막히면 [docker 명령어 정리의 문제 해결](./docs/docker-commands.md#문제-해결-빠른-참고)을 먼저 확인합니다.
 
-08-2, 09, 10단계는 `.env.example`을 `.env`로 복사해 비밀번호나 API 키를 넣어야 실행됩니다.
+08-2, 08-3, 09, 10단계는 `.env.example`을 `.env`로 복사해 비밀번호나 API 키를 넣어야 실행됩니다.
 09, 10단계는 PC에 [uv](https://docs.astral.sh/uv/)가 설치되어 있어야 `uv.lock`을 만들 수 있습니다.
 
 ## 주의

@@ -1,0 +1,21 @@
+-- MariaDB 컨테이너가 "처음" 시작될 때 자동으로 실행되는 SQL
+-- - /docker-entrypoint-initdb.d 폴더에 연결하면 실행됨 (실행방법.txt의 -v 옵션)
+-- - mariadb-data 볼륨이 비어 있을 때(최초 초기화)만 실행되고, 이후 재시작 때는 실행되지 않음
+-- - 실행 순서: 환경 변수로 DB(boot_db)와 계정(boot) 생성 → 이 파일 실행
+--
+-- 목적: boot 계정에서 DROP 권한만 회수
+-- - MARIADB_USER로 만든 계정은 boot_db에 대한 ALL PRIVILEGES를 자동으로 받음
+-- - 앱 계정이 실수로 테이블이나 DB를 지우지 못하도록 DROP만 뺌
+-- - TRUNCATE도 DROP 권한이 필요하므로 함께 막힘
+-- - DELETE(행 삭제), ALTER(컬럼 변경)는 그대로 가능
+--
+-- 권한 Revoke가 처리 되지 않았던 경우
+-- REVOKE DROP ON boot_db.* FROM 'boot'@'%';
+-- 주의: DB 이름을 boot_db가 아니라 `boot\_db` 로 써야 함
+-- - GRANT/REVOKE에서 DB 이름의 _ 는 "아무 글자 하나"를 뜻하는 와일드카드
+-- - MariaDB 이미지는 이를 막으려고 권한을 `boot\_db`.* (진짜 밑줄)로 부여함
+--   (SHOW GRANTS 결과: GRANT ALL PRIVILEGES ON `boot\_db`.* TO `boot`@`%`)
+-- - boot_db.* 로 회수하면 "There is no such grant defined" 오류가 나고 회수되지 않음
+-- - 백틱(`) 안에서는 \ 가 그대로 글자로 취급되므로 아래처럼 쓰면 정확히 일치함
+
+REVOKE DROP ON `boot\_db`.* FROM 'boot'@'%';
