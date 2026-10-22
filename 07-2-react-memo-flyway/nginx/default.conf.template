@@ -1,0 +1,34 @@
+# nginx 설정 (배포용)
+# - 빌드된 React 정적 파일(dist)을 제공
+# - /api, /actuator 요청은 경로를 바꾸지 않고 Spring Boot 로 전달
+# - ${BACKEND_URL} 은 컨테이너 시작 시 환경 변수 값으로 치환됨 (기본 http://app:8080)
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # [변경] /api/memos → ${BACKEND_URL}/api/memos (그대로 전달)
+    # - proxy_pass 끝에 / 가 없으면 요청 경로를 바꾸지 않음
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # [추가] 상태 배지용 (health 만 공개되어 있음: management.endpoints.web.exposure.include=health)
+    # - 운영에서 외부에 열고 싶지 않으면 이 블록을 지우고 React 상태 배지도 제거
+    location /actuator/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_set_header Host $host;
+    }
+
+    # 그 밖의 경로는 React 가 처리 (새로고침해도 index.html 로)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
